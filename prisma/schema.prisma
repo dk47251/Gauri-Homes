@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  name         String?
+  /// scrypt hash in the form "scrypt$<salt>$<hash>" — never sent to the browser.
+  passwordHash String
+  /// "ADMIN" | "USER".
+  role          String    @default("USER")
+  /// "READ_WRITE" | "READ_ONLY". Set by the system administrator; READ_ONLY users cannot create, edit or delete.
+  access        String    @default("READ_ONLY")
+  /// "PENDING" | "APPROVED" | "REJECTED". Only APPROVED users can log in.
+  status        String    @default("PENDING")
+  approvedAt    DateTime?
+  /// The administrator account managed from .env (ADMIN_EMAIL / ADMIN_PASSWORD).
+  isSystemAdmin Boolean   @default(false)
+  lastLoginAt   DateTime?
+  sessions     Session[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+/// Login session. The cookie holds a random token; only its SHA-256 hash is stored here.
+model Session {
+  id        String   @id
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  userAgent String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// A house, plot, shop or flat in the colony.
+model House {
+  id                    Int     @id @default(autoincrement())
+  number                String
+  owner                 String
+  mobile                String  @default("")
+  whatsapp              String  @default("")
+  email                 String  @default("")
+  propertyStatus        String
+  maintenanceApplicable Boolean @default(true)
+  monthlyMaintenance    Int     @default(0)
+  /// Dates are stored as ISO strings (YYYY-MM-DD) to match the month-based ledger logic.
+  dueDate               String  @default("")
+  startDate             String  @default("")
+  status                String  @default("Active")
+  notes                 String  @default("")
+
+  member   Member?
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([number])
+  @@index([propertyStatus])
+  @@index([status])
+}
+
+/// Member account attached to a house (one per house).
+model Member {
+  id        Int    @id @default(autoincrement())
+  houseId   Int    @unique
+  house     House  @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  name      String
+  mobile    String @default("")
+  whatsapp  String @default("")
+  email     String @default("")
+  startDate String @default("")
+  notes     String @default("")
+
+  documents Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Payment {
+  id            Int    @id @default(autoincrement())
+  houseId       Int
+  house         House  @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  date          String
+  /// Maintenance month (YYYY-MM). For advance payments this is the start month.
+  month         String
+  amount        Int
+  mode          String @default("Cash")
+  txn           String @default("")
+  remarks       String @default("")
+  /// "Regular" | "Advance"
+  kind          String @default("Regular")
+  advanceMonths Int    @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([houseId])
+  @@index([month])
+  @@index([date])
+}
+
+model Expense {
+  id             Int     @id @default(autoincrement())
+  date           String
+  category       String
+  description    String
+  amount         Int
+  mode           String  @default("Cash")
+  vendor         String  @default("")
+  remarks        String  @default("")
+  recurring      Boolean @default(false)
+  recurringStart String  @default("")
+  recurringEnd   String  @default("")
+
+  documents Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([category])
+}
+
+model RwaMember {
+  id            Int    @id @default(autoincrement())
+  name          String
+  houseFlat     String @default("")
+  designation   String
+  phone         String @default("")
+  dob           String @default("")
+  idProofType   String @default("Aadhaar")
+  idProofNumber String @default("")
+  status        String @default("Active")
+  notes         String @default("")
+
+  documents Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([designation])
+  @@index([status])
+}
+
+model Renter {
+  id            Int    @id @default(autoincrement())
+  houseFlat     String
+  name          String
+  age           Int    @default(0)
+  nationality   String @default("Indian")
+  phone         String @default("")
+  familyCount   Int    @default(1)
+  /// JSON encoded string[] of family member names.
+  familyMembers String @default("[]")
+  moveInDate    String @default("")
+  validIdType   String @default("Aadhaar")
+  validIdNumber String @default("")
+  notes         String @default("")
+
+  documents Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([houseFlat])
+}
+
+/// Uploaded file (photo, ID proof, bill/receipt) stored inside SQLite.
+model Document {
+  id         String   @id @default(cuid())
+  name       String
+  mime       String
+  size       Int
+  data       Bytes
+  /// "ID_PROOF" | "PHOTO" | "BILL"
+  kind       String
+  uploadedAt DateTime @default(now())
+
+  memberId    Int?
+  member      Member?    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  expenseId   Int?
+  expense     Expense?   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  rwaMemberId Int?
+  rwaMember   RwaMember? @relation(fields: [rwaMemberId], references: [id], onDelete: Cascade)
+  renterId    Int?
+  renter      Renter?    @relation(fields: [renterId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([expenseId])
+  @@index([rwaMemberId])
+  @@index([renterId])
+}
+
+model Setting {
+  id            Int     @id @default(1)
+  autoBackup    Boolean @default(false)
+  backupTime    String  @default("23:00")
+  backupEmail   String  @default("")
+  emailApiUrl   String  @default("")
+  emailBackup   Boolean @default(false)
+  localBackup   Boolean @default(true)
+  retentionDays Int     @default(30)
+}
