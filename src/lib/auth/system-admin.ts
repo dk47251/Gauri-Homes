@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { ACCESS, ROLES, USER_STATUS } from "./constants";
 import { hashPassword, verifyPassword } from "./password";
@@ -14,6 +15,16 @@ export async function syncSystemAdmin() {
   const name = process.env.ADMIN_NAME?.trim() || "Administrator";
   if (!email || !password) return;
 
+  // Skip the (slow, scrypt-based) comparison when .env hasn't changed since the last sync.
+  const fingerprint = createHash("sha256").update(`${email}\0${name}\0${password}`).digest("hex");
+  if (lastSynced === fingerprint) return;
+  await doSync(email, name, password);
+  lastSynced = fingerprint;
+}
+
+let lastSynced: string | null = null;
+
+async function doSync(email: string, name: string, password: string) {
   const current = await prisma.user.findFirst({ where: { isSystemAdmin: true } });
   // If the configured email already belongs to a regular account, that account becomes the admin.
   const byEmail = current?.email === email ? current : await prisma.user.findUnique({ where: { email } });
